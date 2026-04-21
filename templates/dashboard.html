@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Printer Health Monitor - Sensor Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+        :root {
+            --ink-900: #0f172a;
+            --ink-700: #334155;
+            --ink-500: #64748b;
+            --paper: #ffffff;
+            --cloud: #f1f5f9;
+            --line: #dbe4ee;
+            --brand: #0f766e;
+            --brand-2: #0ea5a4;
+            --healthy: #16a34a;
+            --caution: #ca8a04;
+            --creep: #dc2626;
+            --shadow: 0 10px 25px rgba(15, 23, 42, 0.10);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Sora', sans-serif;
+            color: var(--ink-900);
+            background:
+                linear-gradient(90deg, rgba(15,118,110,0.08) 0 100%) top/100% 10px no-repeat,
+                radial-gradient(650px 280px at 8% 0%, rgba(14,165,164,0.12), transparent 60%),
+                linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 1320px;
+            margin: 0 auto;
+            animation: rise 0.55s ease both;
+        }
+
+        @keyframes rise {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            background: var(--paper);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
+        }
+
+        .header h1 {
+            font-size: clamp(30px, 3.8vw, 48px);
+            letter-spacing: -0.03em;
+            line-height: 1;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .header-subtitle {
+            color: var(--ink-500);
+            margin-bottom: 14px;
+            font-size: 13px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .header-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .status-healthy { background: var(--healthy); color: white; }
+        .status-caution { background: var(--caution); color: white; }
+        .status-creep { background: var(--creep); color: white; }
+
+        .connection-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            background: var(--cloud);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+
+        .connection-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 1.8s infinite;
+        }
+
+        .connected { background: var(--healthy); }
+        .disconnected { background: var(--creep); animation: none; }
+
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+
+        .sensor-card {
+            background: var(--paper);
+            border: 1px solid var(--line);
+            border-left: 4px solid var(--brand);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        .sensor-card:nth-child(2) { border-left-color: #0284c7; }
+        .sensor-card:nth-child(3) { border-left-color: #b45309; }
+        .sensor-card:nth-child(4) { border-left-color: #be123c; }
+
+        .sensor-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 20px rgba(15, 23, 42, 0.12);
+        }
+
+        .sensor-name {
+            font-size: 12px;
+            color: var(--ink-500);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .sensor-value {
+            font-size: clamp(40px, 4vw, 56px);
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: -0.03em;
+            color: var(--ink-900);
+        }
+
+        .sensor-unit {
+            font-size: 14px;
+            color: var(--ink-500);
+            margin-top: 6px;
+        }
+
+        .sensor-bar {
+            width: 100%;
+            height: 6px;
+            background: #e5edf5;
+            border-radius: 999px;
+            margin-top: 16px;
+            overflow: hidden;
+        }
+
+        .sensor-bar-fill {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(90deg, var(--brand), var(--brand-2));
+            transition: width 0.35s ease;
+        }
+
+        #currentBar { background: linear-gradient(90deg, #d97706, #ea580c); }
+        #vibBar { background: linear-gradient(90deg, #e11d48, #f97316); }
+
+        .stats-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+            background: var(--paper);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+            padding: 12px;
+        }
+
+        .stat-item {
+            background: var(--cloud);
+            border: 1px solid var(--line);
+            padding: 10px 12px;
+            border-radius: 10px;
+            font-size: 13px;
+            color: var(--ink-700);
+        }
+
+        .stat-label {
+            font-weight: 700;
+            color: var(--ink-900);
+            margin-right: 5px;
+        }
+
+        .table-section {
+            background: var(--paper);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+            padding: 16px;
+            overflow-x: auto;
+        }
+
+        .table-section h2 {
+            font-size: clamp(26px, 3vw, 38px);
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+
+        thead {
+            background: #eaf1f8;
+            border-bottom: 1px solid var(--line);
+        }
+
+        th {
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            color: var(--ink-500);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid var(--line);
+            font-size: 16px;
+        }
+
+        tbody tr:hover { background: #f8fbff; }
+        tbody tr:last-child td { border-bottom: none; }
+
+        .status-cell { font-weight: 700; }
+        .status-healthy-text { color: var(--healthy); }
+        .status-caution-text { color: var(--caution); }
+        .status-creep-text { color: var(--creep); }
+
+        .loading {
+            text-align: center;
+            color: var(--ink-500);
+            padding: 34px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .refresh-info,
+        .last-update {
+            color: var(--ink-500);
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            margin-top: 8px;
+        }
+
+        .refresh-info { text-align: center; margin-top: 14px; }
+
+        @media (max-width: 768px) {
+            body { padding: 14px; }
+            .main-grid { grid-template-columns: 1fr; }
+            .header-info { flex-direction: column; align-items: flex-start; }
+            .sensor-value { font-size: 42px; }
+            th, td { padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header Section -->
+        <div class="header">
+            <h1>RTRP Telemetry Console <span style="font-size:14px;color:#0f766e;vertical-align:middle;">UI v2</span></h1>
+            <div class="header-subtitle">Live Sensor Telemetry | Refresh this page with Cmd+Shift+R to bypass cache</div>
+            <div class="header-info">
+                <div>
+                    <span class="status-badge" id="statusBadge" style="display:none;">
+                        <!-- Status will be inserted here -->
+                    </span>
+                    <div class="last-update" id="lastUpdate"></div>
+                </div>
+                <div class="connection-indicator">
+                    <div class="connection-dot" id="connectionDot"></div>
+                    <span id="connectionStatus">Connecting...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sensor Cards Grid -->
+        <div class="main-grid">
+            <div class="sensor-card">
+                <div class="sensor-name">Nozzle Temperature</div>
+                <div class="sensor-value" id="nozzleTemp">--</div>
+                <div class="sensor-unit">°C</div>
+                <div class="sensor-bar">
+                    <div class="sensor-bar-fill" id="nozzleBar" style="width: 50%;"></div>
+                </div>
+            </div>
+
+            <div class="sensor-card">
+                <div class="sensor-name">Bed Temperature</div>
+                <div class="sensor-value" id="bedTemp">--</div>
+                <div class="sensor-unit">°C</div>
+                <div class="sensor-bar">
+                    <div class="sensor-bar-fill" id="bedBar" style="width: 50%;"></div>
+                </div>
+            </div>
+
+            <div class="sensor-card">
+                <div class="sensor-name">Motor Current</div>
+                <div class="sensor-value" id="motorCurrent">--</div>
+                <div class="sensor-unit">Amperes</div>
+                <div class="sensor-bar">
+                    <div class="sensor-bar-fill" id="currentBar" style="width: 50%;"></div>
+                </div>
+            </div>
+
+            <div class="sensor-card">
+                <div class="sensor-name">Vibrations</div>
+                <div class="sensor-value" id="vibrations">--</div>
+                <div class="sensor-unit">per minute</div>
+                <div class="sensor-bar">
+                    <div class="sensor-bar-fill" id="vibBar" style="width: 50%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats-row">
+            <div class="stat-item">
+                <span class="stat-label">Total Readings:</span>
+                <span id="readingCount">0</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Collection Interval:</span>
+                <span>10 seconds</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Data Source:</span>
+                <span id="dataSource">Loading...</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Model Status:</span>
+                <span id="modelStatus">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="table-section">
+            <h2>Sensor Readings History</h2>
+            <table id="dataTable">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Nozzle Temp (°C)</th>
+                        <th>Bed Temp (°C)</th>
+                        <th>Motor Current (A)</th>
+                        <th>Vibrations (vib/min)</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr>
+                        <td colspan="6" class="loading">Waiting for sensor data...</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="refresh-info">
+                Data updates every 10 seconds • Displaying last 100 readings
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+        const REFRESH_INTERVAL = 1000; // Check API every 1 second (data updates every 10 seconds from sensor)
+
+        // Sensor thresholds for bar visualization
+        const THRESHOLDS = {
+            nozzle_temp: { min: 150, max: 280 },
+            bed_temp: { min: 30, max: 90 },
+            current: { min: 0, max: 3.5 },
+            vib_per_min: { min: 0, max: 150 }
+        };
+
+        function updateStatusBadge(status) {
+            const badge = document.getElementById('statusBadge');
+            badge.textContent = status;
+            badge.className = `status-badge status-${status.toLowerCase()}`;
+            badge.style.display = 'inline-block';
+        }
+
+        function getStatusClass(status) {
+            switch(status.toUpperCase()) {
+                case 'HEALTHY': return 'status-healthy-text';
+                case 'CAUTION': return 'status-caution-text';
+                case 'CREEP': return 'status-creep-text';
+                default: return '';
+            }
+        }
+
+        function normalizeValue(value, min, max) {
+            const normalized = (value - min) / (max - min);
+            return Math.max(0, Math.min(100, normalized * 100));
+        }
+
+        function updateSensorCards(latest) {
+            if (!latest) return;
+
+            // Nozzle Temperature
+            document.getElementById('nozzleTemp').textContent = latest.nozzle_temp;
+            const nozzlePercent = normalizeValue(latest.nozzle_temp, THRESHOLDS.nozzle_temp.min, THRESHOLDS.nozzle_temp.max);
+            document.getElementById('nozzleBar').style.width = nozzlePercent + '%';
+
+            // Bed Temperature
+            document.getElementById('bedTemp').textContent = latest.bed_temp;
+            const bedPercent = normalizeValue(latest.bed_temp, THRESHOLDS.bed_temp.min, THRESHOLDS.bed_temp.max);
+            document.getElementById('bedBar').style.width = bedPercent + '%';
+
+            // Motor Current
+            document.getElementById('motorCurrent').textContent = latest.current;
+            const currentPercent = normalizeValue(latest.current, THRESHOLDS.current.min, THRESHOLDS.current.max);
+            document.getElementById('currentBar').style.width = currentPercent + '%';
+
+            // Vibrations
+            document.getElementById('vibrations').textContent = latest.vib_per_min;
+            const vibPercent = normalizeValue(latest.vib_per_min, THRESHOLDS.vib_per_min.min, THRESHOLDS.vib_per_min.max);
+            document.getElementById('vibBar').style.width = vibPercent + '%';
+
+            // Update status badge
+            updateStatusBadge(latest.status);
+
+            // Update last update time
+            const lastUpdateDiv = document.getElementById('lastUpdate');
+            lastUpdateDiv.textContent = `Last update: ${latest.timestamp}`;
+        }
+
+        function updateDataTable(data) {
+            const tbody = document.getElementById('tableBody');
+            
+            if (!data || data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="loading">Waiting for sensor data...</td></tr>';
+                return;
+            }
+
+            // Show latest readings in reverse order (newest first)
+            const reversedData = [...data].reverse();
+            tbody.innerHTML = reversedData.map(row => `
+                <tr>
+                    <td>${row.timestamp}</td>
+                    <td>${row.nozzle_temp}°C</td>
+                    <td>${row.bed_temp}°C</td>
+                    <td>${row.current}A</td>
+                    <td>${row.vib_per_min}</td>
+                    <td class="status-cell ${getStatusClass(row.status)}">${row.status}</td>
+                </tr>
+            `).join('');
+        }
+
+        function updateStats(response) {
+            // Update reading count
+            if (response.data) {
+                document.getElementById('readingCount').textContent = response.data.length;
+            }
+
+            // Update data source
+            const dataSource = response.serial_connected
+                ? `Real Arduino (${response.arduino_port || 'serial'})`
+                : 'No Arduino Detected';
+            document.getElementById('dataSource').textContent = dataSource;
+
+            // Update model status
+            const modelStatus = response.model_available ? 'ML Model' : 'Rule-Based';
+            document.getElementById('modelStatus').textContent = modelStatus;
+
+            // Update connection indicator
+            const connectDot = document.getElementById('connectionDot');
+            const connectStatus = document.getElementById('connectionStatus');
+            if (response.serial_connected) {
+                connectDot.classList.add('connected');
+                connectDot.classList.remove('disconnected');
+                connectStatus.textContent = `Connected: ${response.arduino_port || 'serial'}`;
+            } else {
+                connectDot.classList.remove('connected');
+                connectDot.classList.add('disconnected');
+                connectStatus.textContent = 'Arduino Not Detected';
+            }
+        }
+
+        async function fetchSensorData() {
+            try {
+                const response = await fetch(`${API_BASE}/sensor-data`);
+                const data = await response.json();
+
+                updateDataTable(data.data);
+                if (data.latest) {
+                    updateSensorCards(data.latest);
+                }
+                updateStats(data);
+            } catch (error) {
+                console.error('Error fetching sensor data:', error);
+            }
+        }
+
+        // Initial fetch
+        fetchSensorData();
+
+        // Set up auto-refresh
+        setInterval(fetchSensorData, REFRESH_INTERVAL);
+    </script>
+</body>
+</html>
