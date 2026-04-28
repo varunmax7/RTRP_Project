@@ -1,6 +1,8 @@
 # 🖨️ 3D Printer Health Monitoring & ML-Based Detection System
 
-Welcome to the **3D Printer Health Monitoring System**! This repository provides a complete hardware, firmware, and software ecosystem designed to monitor 3D printing tasks in real time. It uses a combination of analog sensors and machine learning to proactively classify the printer's performance layer-by-layer, predicting potential failures and mechanical creep before they ruin a print.
+Welcome to the **3D Printer Health Monitoring System** (RTRP)! This repository provides a complete hardware, firmware, and software ecosystem designed to monitor 3D printing tasks in real time. It uses a combination of analog sensors and machine learning to proactively classify the printer's performance layer-by-layer, predicting potential failures and mechanical creep before they ruin a print.
+
+**Latest Version (v2.0):** Complete web dashboard with authentication, system control, real-time analytics, and RUL tracking. ✨
 
 ---
 
@@ -23,7 +25,44 @@ It assigns a physical health state to the printer:
 * **⚠️ CREEP:** The machine is exhibiting structural or thermal deterioration (e.g., elevated temperatures, excessive vibrations, high motor loads). Immediate intervention is recommended.
 * **🟡 CAUTION:** The machine is entering transitional zones; the print may be in jeopardy soon.
 
-The system features both an **on-device OLED dashboard** for quick diagnostics at a glance, and a **local Flask web server dashboard** for remote monitoring.
+The system features both an **on-device OLED dashboard** for quick diagnostics at a glance, and a **responsive Flask web dashboard** for remote monitoring with authentication, real-time charts, and system controls.
+
+---
+
+## ✨ Key Features (v2.0)
+
+### Dashboard & Web Interface
+- 🔐 **Secure Login Authentication** - Session-based login with admin credentials
+- 📊 **Real-Time Charts** - Interactive line charts showing sensor trends using Chart.js
+- 📱 **Responsive UI** - Mobile-friendly design works on desktop, tablet, and phone
+- 🎨 **Modern Design** - Clean Tailwind-based UI with status badges and health indicators
+- 📥 **CSV Export** - Download sensor history and telemetry data
+- 🔄 **Live Updates** - Auto-refresh every second for real-time monitoring
+
+### System Control & Management
+- ⏸️ **System Toggle Button** - Pause/Resume data collection with one click
+- 🔒 **Thread-Safe Operations** - Robust pause/resume with mutex locking
+- 💾 **SQLite Database** - Persistent storage of all sensor readings and analytics
+- 📈 **RUL Tracking** - Remaining Useful Life calculation (48h, 12h, 6h, 1h based on health %)
+
+### Sensor Integration
+- 🌡️ **Nozzle Temperature** - Real-time hotend monitoring
+- 🛏️ **Bed Temperature** - Heatbed thermal tracking
+- ⚡ **Motor Current** - ACS712 sensor for load detection
+- 📳 **Vibration Sensing** - Mechanical stress monitoring
+- 🔄 **10-Second Intervals** - Continuous data collection loop
+
+### Machine Learning
+- 🤖 **ML-Based Classification** - scikit-learn Random Forest predictor
+- 📊 **Feature Scaling** - StandardScaler normalized inputs
+- 🎯 **Health Percentage** - Individual component health scores (0-100%)
+- 🧠 **Rule-Based Fallback** - Works even without pre-trained models
+
+### Progressive Web App
+- 📲 **PWA Support** - Install as app on home screen
+- 🌐 **Offline Caching** - Service worker for offline functionality
+- 📋 **Manifest.json** - Web app metadata and configuration
+- ⚡ **Fast Loading** - Optimized assets and caching strategies
 
 ---
 
@@ -108,13 +147,149 @@ With the Arduino connected via USB, launch the Flask monitoring server:
 ./run_sensor_monitor.sh
 # Alternatively: python sensor_monitor.py
 ```
-Open your web browser and navigate to `http://localhost:5001`. You will see the dynamic updating dashboard with real-time graphs and predictions.
+
+The server will start on `http://localhost:5001`
+
+### Step 5: Access the Dashboard
+1. Open your web browser and navigate to `http://localhost:5001`
+2. You will be redirected to the login page
+3. **Default Credentials:**
+   - Username: `admin`
+   - Password: `password123`
+4. After login, you'll see the real-time dashboard with:
+   - Live sensor readings (nozzle temp, bed temp, current, vibration)
+   - System status badge (HEALTHY/CAUTION/CREEP)
+   - RUL (Remaining Useful Life) estimation
+   - Interactive sensor history charts
+   - System control buttons (ON/OFF toggle, Export CSV)
+
+**⚠️ Important Security Note:** Change the default admin password in production! Edit `sensor_monitor.py` line 38-39 to update credentials.
 
 ---
 
-## 🔧 Calibration & Customization
+## � API Endpoints Reference
 
-Every 3D printer behaves differently. Your actual baseline for "Healthy" may look very different from our default thresholds.
+The Flask backend exposes the following endpoints:
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/` | GET | Required | Dashboard HTML page |
+| `/login` | GET/POST | - | User authentication |
+| `/logout` | GET | Required | Clear session |
+| `/api/sensor-data` | GET | Required | Get all sensor readings & charts data |
+| `/api/status` | GET | Required | Get system status summary |
+| `/api/toggle-system` | POST | Required | Pause/Resume data collection |
+| `/api/export-csv` | GET | Required | Download telemetry as CSV |
+
+### Example API Usage
+```bash
+# Login
+curl -c cookies.txt -d "username=admin&password=password123" http://localhost:5001/login
+
+# Get sensor data
+curl -b cookies.txt http://localhost:5001/api/sensor-data
+
+# Toggle system (pause/resume)
+curl -X POST -b cookies.txt http://localhost:5001/api/toggle-system
+
+# Export CSV
+curl -b cookies.txt http://localhost:5001/api/export-csv -o data.csv
+```
+
+---
+
+## 📊 Database Schema
+
+The SQLite database (`telemetry.db`) stores all sensor readings with the following structure:
+
+```sql
+CREATE TABLE sensor_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT,
+    nozzle_temp REAL,
+    bed_temp REAL,
+    current REAL,
+    vib_per_min REAL,
+    status TEXT,
+    rul INTEGER
+)
+```
+
+Each row represents a single sensor reading collected every 10 seconds.
+
+---
+
+## 🎮 Dashboard Features Explained
+
+### System Toggle Button
+- **Location:** Header area next to status badge
+- **Function:** Pauses data collection without disconnecting
+- **Visual State:**
+  - Green "SYSTEM ON" - Data collection active
+  - Gray "SYSTEM OFF" - Data collection paused
+- **Use Case:** Maintenance, testing, or temporary monitoring pause
+
+### RUL (Remaining Useful Life) Display
+Shows estimated hours before component failure:
+- **48 Hours** - System HEALTHY (overall health ≥ 80%)
+- **12 Hours** - System DEGRADING (overall health ≥ 60%)
+- **6 Hours** - System in CAUTION (overall health ≥ 40%)
+- **1 Hour** - System FAILING (overall health < 40%)
+
+Calculated from individual component health percentages:
+```
+Overall Health = (Nozzle Health + Bed Health + Motor Health + Vibration Health) / 4
+```
+
+### Sensor Cards
+Display real-time values with color-coded indicators:
+- 🟢 Green border - Healthy range
+- 🟡 Yellow border - Degrading range  
+- 🔴 Red border - Failing range
+
+### Charts
+Interactive line charts showing 10-minute rolling history:
+- Nozzle Temperature trend
+- Bed Temperature trend
+- Motor Current trend
+- Vibration per minute trend
+
+---
+
+## 🔧 Hardware Connection Guide
+
+### Current Sensor (ACS712) Connection
+To measure motor current and enable full system diagnostics:
+
+**Component:** ACS712-30A Current Sensor
+**Arduino Pin:** A0 (Analog Input)
+**Wiring:**
+- VCC (Red) → Arduino 5V
+- GND (Black) → Arduino GND
+- OUT (Yellow) → Arduino A0
+
+**Calibration:**
+- Default zero voltage: 2.5V
+- Sensitivity: 0.185 V/A
+- Normal range: 0-30A (for 3D printer motors)
+
+### Complete Sensor Pinout
+```
+Arduino Micro:
+├── Pin 8 → DHT11 (Nozzle Temp)
+├── Pin 9 → DHT11 (Bed Temp)
+├── Pin 7 → Vibration Sensor (Digital)
+├── A0 → ACS712 Current (Analog)
+├── SDA → OLED SDA
+├── SCL → OLED SCL
+└── USB → Computer (9600 baud)
+
+OLED I2C Address: 0x3C (or 0x3D if custom)
+```
+
+---
+
+## 🔧 Customization & Tuning
 
 ### Re-tuning the System
 1. **Collect Data:** Let your printer run a successful 12-hour print. Log the serial data into CSV format and append it to `data/healthy_data.csv`. Do the same when you notice a misbehaving print and append it to `data/creep_data.csv`.
@@ -129,16 +304,120 @@ Every 3D printer behaves differently. Your actual baseline for "Healthy" may loo
 
 ---
 
+## 📦 Project Structure
+
+```
+rtrp_project/
+├── sensor_monitor.py           # Main Flask server (sensor collection, API, DB)
+├── ml_train.py                 # ML model training script
+├── quick_train.py              # Fast training for testing
+├── templates/
+│   ├── dashboard.html          # Main dashboard UI (responsive, PWA)
+│   └── login.html              # Login authentication page
+├── data/
+│   ├── healthy_data.csv        # Training data (healthy prints)
+│   └── creep_data.csv          # Training data (degraded prints)
+├── model/
+│   ├── model.pkl               # Trained Random Forest model
+│   └── scaler.pkl              # Feature scaler for normalization
+├── src/
+│   └── test.cpp                # Arduino firmware (sensor + health calculation)
+├── platformio.ini              # PlatformIO configuration
+├── requirements.txt            # Python dependencies
+└── telemetry.db               # SQLite database (auto-created)
+```
+
+---
+
+## 🚀 Recent Updates (v2.0)
+
+**Commit:** `c718ec9` - [View on GitHub](https://github.com/varunmax7/RTRP_Project)
+
+### ✨ New Features
+- ✅ System pause/resume toggle button in dashboard
+- ✅ RUL calculation aligned between Arduino and web backend
+- ✅ Secure login authentication system
+- ✅ Thread-safe sensor data collection control
+- ✅ SQLite telemetry database with persistent storage
+- ✅ Interactive Chart.js graphs for sensor trending
+- ✅ Responsive mobile-friendly dashboard
+- ✅ CSV export functionality for data analysis
+- ✅ PWA support with offline caching
+
+### 🔧 Improvements
+- Enhanced error handling and logging
+- Optimized database queries
+- Better real-time update mechanisms
+- Improved thread synchronization
+- Professional UI/UX with Tailwind CSS
+
+---
+
 ## 🐛 Common Troubleshooting
 
+### Dashboard Issues
+* **"Address already in use" error:** Another process is using port 5001. Run `lsof -ti:5001 | xargs kill -9` to free the port.
+* **Can't login:** Verify credentials are correct (default: admin/password123). Check `sensor_monitor.py` lines 38-39.
+* **Session expires:** Your login session timed out. Refresh the page and log in again.
+* **Blank dashboard:** Check browser console (F12) for JavaScript errors. Clear cache and refresh with Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows).
+
+### Sensor Issues
 * **Sensors reading "nan":** Check DHT wiring (Power, GND, Data Pin). Verify your pull-up resistors on the DHT data line.
 * **Inaccurate Current Readings:** Ensure the ACS712 is powered with a clean 5V source. You may need to calibrate the `zeroVoltage` variable inside the C++ code.
 * **OLED Blank:** Verify I2C address (usually `0x3C`, sometimes `0x3D`). Check SDA/SCL connections and ensure the `Adafruit_SSD1306` library is properly bundled in your PlatformIO setup.
 * **Missing Flask Server Connection:** Confirm the `SERIAL_PORT` variable in `sensor_monitor.py` corresponds exactly to your active USB device path.
 
+### System Toggle Issues
+* **Toggle button doesn't respond:** Check browser console for network errors. Ensure you're logged in.
+* **System won't pause:** Verify the thread lock is properly initialized in `sensor_monitor.py`. Restart the server if lock becomes deadlocked.
+* **Data still collecting when OFF:** The collection loop may be in the middle of a 10-second cycle. Wait up to 10 seconds for pause to take effect.
+
+### Database Issues
+* **"Database locked" error:** Close other programs accessing the DB. Ensure only one instance of `sensor_monitor.py` is running.
+* **Missing telemetry.db:** The database auto-creates on first run. If missing, restart the server or check file permissions.
+* **CSV export empty:** Wait for at least one sensor reading cycle (~10 seconds) before exporting.
+
 ---
 
-### File Size & Microcontroller Efficiency
-This system is highly optimized. While the Random Forest model runs on the Python backend, the Arduino utilizes pre-calculated branching logic, requiring no intensive ML libraries on the board. The compiled C++ sketch takes roughly `~8KB` of program storage space, leaving plenty of overhead on the Arduino Micro.
+## 📝 File Size & Microcontroller Efficiency
 
-Enjoy smarter, safer 3D printing!
+This system is highly optimized:
+- **Arduino Sketch:** ~8KB program storage (plenty of headroom on Micro)
+- **Flask Backend:** Lightweight with minimal dependencies
+- **Database:** SQLite for efficient data storage and querying
+- **Frontend:** Optimized CSS/JS bundles with PWA caching
+
+---
+
+## 🤝 Contributing
+
+Have improvements? Found a bug? Want to add a feature?
+1. Fork the repository: [github.com/varunmax7/RTRP_Project](https://github.com/varunmax7/RTRP_Project)
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit changes: `git commit -am 'Add new feature'`
+4. Push to branch: `git push origin feature/your-feature`
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+This project is open source. Check LICENSE file for details.
+
+---
+
+## ❤️ Acknowledgments
+
+Built with:
+- [Arduino](https://www.arduino.cc/) - Microcontroller platform
+- [PlatformIO](https://platformio.org/) - Embedded development
+- [Flask](https://flask.palletsprojects.com/) - Web framework
+- [scikit-learn](https://scikit-learn.org/) - Machine learning
+- [Chart.js](https://www.chartjs.org/) - Data visualization
+- [Adafruit Libraries](https://www.adafruit.com/) - Sensor libraries
+
+---
+
+**Enjoy smarter, safer 3D printing! 🚀**
+
+*For questions or support, please open an issue on [GitHub](https://github.com/varunmax7/RTRP_Project/issues)*
