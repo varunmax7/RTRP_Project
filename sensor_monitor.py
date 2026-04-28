@@ -14,15 +14,98 @@ import joblib
 import numpy as np
 from flask import Flask, render_template, jsonify
 import serial
+import sqlite3
+
+import pandas as pd
+from functools import wraps
+from flask import session, redirect, url_for, request, Response
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'logged_in' not in session:
+            # Check if HTMX request or regular JS fetch
+            if request.headers.get('HX-Request') or request.headers.get('Accept', '').find('application/json') != -1:
+                return {"error": "Unauthorized"}, 401
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 
 app = Flask(__name__)
+app.secret_key = 'super_secret_key_change_in_production'
+
+ADMIN_USERNAME = 'admin'
+ADMIN_PASSWORD = 'password123'
+
+DB_FILE = 'telemetry.db'
+
+def init_db():
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS sensor_data
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      timestamp TEXT,
+                      nozzle_temp REAL,
+                      bed_temp REAL,
+                      current REAL,
+                      vib_per_min REAL,
+                      status TEXT,
+                      rul INTEGER)''')
+        conn.commit()
+
+init_db()
+
+def calculate_rul(nozzle_temp, bed_temp, current, vib_per_min):
+    """Calculate RUL based on overall health percentage (aligned with Arduino OLED)"""
+    # First calculate individual health scores (0-100)
+    nozzle_health = 100
+    if nozzle_temp >= 245: nozzle_health = 0
+    elif nozzle_temp >= 240: nozzle_health = 20
+    elif nozzle_temp >= 235: nozzle_health = 40
+    elif nozzle_temp >= 230: nozzle_health = 60
+    elif nozzle_temp >= 225: nozzle_health = 80
+    
+    bed_health = 100
+    if bed_temp >= 85: bed_health = 0
+    elif bed_temp >= 80: bed_health = 20
+    elif bed_temp >= 72: bed_health = 40
+    elif bed_temp >= 70: bed_health = 80
+    
+    motor_health = 100
+    if current >= 3.2: motor_health = 0
+    elif current >= 2.8: motor_health = 20
+    elif current >= 2.5: motor_health = 40
+    elif current >= 2.0: motor_health = 60
+    elif current >= 1.8: motor_health = 80
+    
+    vib_health = 100
+    if vib_per_min >= 110: vib_health = 0
+    elif vib_per_min >= 95: vib_health = 20
+    elif vib_per_min >= 75: vib_health = 40
+    elif vib_per_min >= 70: vib_health = 80
+    
+    # Calculate overall health percentage
+    overall_health = (nozzle_health + bed_health + motor_health + vib_health) / 4
+    
+    # Map overall health to RUL hours (matching Arduino)
+    if overall_health >= 80:
+        return 48  # HEALTHY
+    elif overall_health >= 60:
+        return 12  # DEGRADING
+    elif overall_health >= 40:
+        return 6   # CAUTION
+    else:
+        return 1   # FAILING
+
+
 
 # Configuration
 SENSOR_INTERVAL = 10  # seconds between sensor readings
 MAX_READINGS = 100  # max number of readings to keep in memory
 SERIAL_PORT = '/dev/cu.usbmodem1101'  # Arduino serial port (auto-detected)
 SERIAL_BAUD = 9600
-ALLOW_MOCK_FALLBACK = False  # Keep False to enforce real Arduino data only
+ALLOW_MOCK_FALLBACK = True  # Enable mock data fallback for testing
 
 # Global data storage
 sensor_data = {
@@ -31,6 +114,7 @@ sensor_data = {
     'current': deque(maxlen=MAX_READINGS),
     'vib_per_min': deque(maxlen=MAX_READINGS),
     'status': deque(maxlen=MAX_READINGS),
+    'rul': deque(maxlen=MAX_READINGS),
     'timestamps': deque(maxlen=MAX_READINGS)
 }
 
@@ -57,6 +141,10 @@ VIB_DEGRADE_MIN = 90
 # Serial connection
 ser = None
 USE_MOCK_DATA = True
+
+# System state
+system_active = True  # Toggle this to pause/resume data collection
+system_lock = threading.Lock()  # Thread-safe access to system_active
 
 
 def find_arduino_port():
@@ -290,7 +378,7 @@ def classify_status(nozzle_temp, bed_temp, current, vib_per_min):
 
 def sensor_collection_loop():
     """Background thread to collect sensor data every 10 seconds"""
-    global ser, USE_MOCK_DATA
+    global ser, USE_MOCK_DATA, system_active
     
     reconnect_counter = 0
     
@@ -300,6 +388,11 @@ def sensor_collection_loop():
     while True:
         try:
             time.sleep(SENSOR_INTERVAL)
+            
+            # Check if system is paused
+            with system_lock:
+                if not system_active:
+                    continue  # Skip data collection if system is paused
 
             # Reconnect when serial is missing/closed, or periodically while in mock mode.
             if ser is None or (hasattr(ser, "is_open") and not ser.is_open):
@@ -327,12 +420,21 @@ def sensor_collection_loop():
                 data['vib_per_min']
             )
             
+            # Calculate RUL
+            rul = calculate_rul(
+                data['nozzle_temp'],
+                data['bed_temp'],
+                data['current'],
+                data['vib_per_min']
+            )
+            
             # Store data
             sensor_data['nozzle_temp'].append(data['nozzle_temp'])
             sensor_data['bed_temp'].append(data['bed_temp'])
             sensor_data['current'].append(data['current'])
             sensor_data['vib_per_min'].append(data['vib_per_min'])
             sensor_data['status'].append(status)
+            sensor_data['rul'].append(rul)
             sensor_data['timestamps'].append(timestamp)
             
             # Print to console
@@ -345,12 +447,32 @@ def sensor_collection_loop():
 sensor_thread = threading.Thread(target=sensor_collection_loop, daemon=True)
 sensor_thread.start()
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page and authentication handler"""
+    if request.method == 'POST':
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            session['logged_in'] = True
+            return redirect(url_for('dashboard'))
+        else:
+            return render_template('login.html', error='Invalid credentials'), 401
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    return redirect(url_for('login'))
+
 @app.route('/')
+@login_required
 def dashboard():
     """Main dashboard page"""
     return render_template('dashboard.html')
 
 @app.route('/api/sensor-data')
+@login_required
 def get_sensor_data():
     """API endpoint to get latest sensor data"""
     detected_port = find_arduino_port()
@@ -375,7 +497,8 @@ def get_sensor_data():
             'bed_temp': sensor_data['bed_temp'][i],
             'current': sensor_data['current'][i],
             'vib_per_min': sensor_data['vib_per_min'][i],
-            'status': sensor_data['status'][i]
+            'status': sensor_data['status'][i],
+            'rul': sensor_data['rul'][i]
         })
     
     latest = readings[-1] if readings else None
@@ -390,6 +513,7 @@ def get_sensor_data():
     })
 
 @app.route('/api/status')
+@login_required
 def get_status():
     """API endpoint to get current status"""
     detected_port = find_arduino_port()
@@ -412,6 +536,24 @@ def get_status():
         'last_update': sensor_data['timestamps'][-1],
         'arduino_port': detected_port
     })
+
+
+@app.route('/api/export-csv')
+@login_required
+def export_csv():
+    with sqlite3.connect(DB_FILE) as conn:
+        df = pd.read_sql_query("SELECT * FROM sensor_data", conn)
+        return Response(df.to_csv(index=False), mimetype="text/csv", headers={"Content-Disposition": "attachment;filename=sensor_history.csv"})
+
+@app.route('/api/toggle-system', methods=['POST'])
+@login_required
+def toggle_system():
+    """Toggle system active/pause state"""
+    global system_active
+    with system_lock:
+        system_active = not system_active
+        state = system_active
+    return jsonify({'is_active': state})
 
 if __name__ == '__main__':
     print(f"Starting Sensor Monitor Web Server on http://localhost:5001")

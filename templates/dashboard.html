@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- PWA configuration -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f766e">
+    <link rel="apple-touch-icon" href="/static/icons/icon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>3D Printer Health Monitor - Sensor Dashboard</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
@@ -277,6 +283,87 @@
 
         .refresh-info { text-align: center; margin-top: 14px; }
 
+        .system-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 700;
+            border-radius: 8px;
+            cursor: pointer;
+            border: 2px solid var(--line);
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-left: 12px;
+        }
+
+        .system-toggle.active {
+            background-color: var(--healthy);
+            color: white;
+            border-color: var(--healthy);
+        }
+
+        .system-toggle.inactive {
+            background-color: var(--ink-500);
+            color: white;
+            border-color: var(--ink-500);
+        }
+
+        .system-toggle:hover {
+            opacity: 0.9;
+            transform: scale(1.02);
+        }
+        
+        .logout-btn {
+            background: transparent;
+            color: var(--ink-500);
+            border: 1px solid var(--line);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+            margin-left: auto; /* Push to right */
+        }
+        .logout-btn:hover {
+            background: var(--cloud);
+            color: var(--ink-900);
+        }
+
+        .install-banner {
+            display: none; /* hidden initially */
+            background: linear-gradient(90deg, var(--brand), var(--brand-2));
+            color: white;
+            padding: 14px 20px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--shadow);
+            font-weight: 600;
+            animation: rise 0.5s ease both;
+        }
+
+        .install-btn {
+            background: white;
+            color: var(--brand);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 700;
+            cursor: pointer;
+            font-size: 14px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .install-btn:active {
+            transform: scale(0.95);
+        }
+
         @media (max-width: 768px) {
             body { padding: 14px; }
             .main-grid { grid-template-columns: 1fr; }
@@ -285,23 +372,38 @@
             th, td { padding: 8px; }
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="container">
+        <!-- Install Banner (Shows on mobile if PWA can be installed) -->
+        <div id="installBanner" class="install-banner">
+            <div>📲 Install RTRP Console on your home screen for quick access!</div>
+            <button id="installBtn" class="install-btn">Install App</button>
+        </div>
+
         <!-- Header Section -->
         <div class="header">
             <h1>RTRP Telemetry Console <span style="font-size:14px;color:#0f766e;vertical-align:middle;">UI v2</span></h1>
             <div class="header-subtitle">Live Sensor Telemetry | Refresh this page with Cmd+Shift+R to bypass cache</div>
             <div class="header-info">
-                <div>
+                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; width: 100%;">
                     <span class="status-badge" id="statusBadge" style="display:none;">
                         <!-- Status will be inserted here -->
                     </span>
-                    <div class="last-update" id="lastUpdate"></div>
+                    <button id="systemToggleBtn" class="system-toggle active" onclick="toggleSystem()">SYSTEM ON</button>
+                    <a href="/api/export-csv" class="system-toggle inactive" style="margin-left: 10px; background:white; color:var(--brand); border-color:var(--brand);" download>Export CSV</a>
+                    <a href="/logout" class="logout-btn">Log out</a>
                 </div>
-                <div class="connection-indicator">
-                    <div class="connection-dot" id="connectionDot"></div>
-                    <span id="connectionStatus">Connecting...</span>
+                <!-- Line break for info underneath -->
+                <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                    <div>
+                        <div class="last-update" id="lastUpdate"></div>
+                    </div>
+                    <div class="connection-indicator">
+                        <div class="connection-dot" id="connectionDot"></div>
+                        <span id="connectionStatus">Connecting...</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -365,6 +467,17 @@
             </div>
         </div>
 
+        <!-- Analytical Charts -->
+        <div class="header" style="padding: 16px; margin-bottom: 14px;">
+            <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 12px; display:flex; justify-content: space-between;">
+                Telemetry History
+                <span id="rulDisplay" style="font-size:14px; font-weight:700; color: #b45309; background:#fef9c3; padding: 4px 10px; border-radius: 8px;">RUL: Estimating...</span>
+            </h2>
+            <div style="height: 300px; width: 100%;">
+                <canvas id="historyChart"></canvas>
+            </div>
+        </div>
+
         <!-- Data Table -->
         <div class="table-section">
             <h2>Sensor Readings History</h2>
@@ -422,6 +535,48 @@
         function normalizeValue(value, min, max) {
             const normalized = (value - min) / (max - min);
             return Math.max(0, Math.min(100, normalized * 100));
+        }
+
+
+        // Chart Initialization
+        let telemetryChart = null;
+
+        function initChart() {
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            telemetryChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'Nozzle Temp (°C)', borderColor: '#0f766e', backgroundColor: '#0f766e', data: [], yAxisID: 'y', tension: 0.2, pointRadius: 0 },
+                        { label: 'Bed Temp (°C)', borderColor: '#0284c7', backgroundColor: '#0284c7', data: [], yAxisID: 'y', tension: 0.2, pointRadius: 0 },
+                        { label: 'Current (A × 10)', borderColor: '#d97706', backgroundColor: '#d97706', data: [], yAxisID: 'y1', tension: 0.2, pointRadius: 0, borderDash: [5, 5] },
+                        { label: 'Vibrations', borderColor: '#e11d48', backgroundColor: '#e11d48', data: [], yAxisID: 'y1', tension: 0.2, pointRadius: 0 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        y: { type: 'linear', display: true, position: 'left', title: {display:true, text:'Temperature (°C)'} },
+                        y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, title: {display:true, text:'Vib / Current'} }
+                    },
+                    plugins: { legend: { position: 'top' } }
+                }
+            });
+        }
+
+        function updateChart(data) {
+            if (!telemetryChart) initChart();
+            
+            telemetryChart.data.labels = data.map(d => d.timestamp.split(' ')[1]); // Only show time part
+            telemetryChart.data.datasets[0].data = data.map(d => d.nozzle_temp);
+            telemetryChart.data.datasets[1].data = data.map(d => d.bed_temp);
+            telemetryChart.data.datasets[2].data = data.map(d => d.current * 10); // scale up for better visibility against vibrations
+            telemetryChart.data.datasets[3].data = data.map(d => d.vib_per_min);
+            
+            telemetryChart.update();
         }
 
         function updateSensorCards(latest) {
@@ -482,6 +637,20 @@
             if (response.data) {
                 document.getElementById('readingCount').textContent = response.data.length;
             }
+            
+            // Handle Toggle Button UI
+            const toggleBtn = document.getElementById('systemToggleBtn');
+            if (response.is_active !== undefined) {
+                if (response.is_active) {
+                    toggleBtn.textContent = 'SYSTEM ON';
+                    toggleBtn.classList.add('active');
+                    toggleBtn.classList.remove('inactive');
+                } else {
+                    toggleBtn.textContent = 'SYSTEM OFF';
+                    toggleBtn.classList.remove('active');
+                    toggleBtn.classList.add('inactive');
+                }
+            }
 
             // Update data source
             const dataSource = response.serial_connected
@@ -507,12 +676,63 @@
             }
         }
 
+        async function toggleSystem() {
+            try {
+                const response = await fetch(`${API_BASE}/toggle-system`, { method: 'POST', headers: { 'Cache-Control': 'no-cache' } });
+                
+                // Handle session expiration redirect
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return;
+                }
+                
+                if (!response.ok) return;
+                
+                const result = await response.json();
+                
+                const btn = document.getElementById('systemToggleBtn');
+                if (result.is_active) {
+                    btn.textContent = 'SYSTEM ON';
+                    btn.classList.add('active');
+                    btn.classList.remove('inactive');
+                } else {
+                    btn.textContent = 'SYSTEM OFF';
+                    btn.classList.remove('active');
+                    btn.classList.add('inactive');
+                }
+            } catch (error) {
+                console.error("Error toggling system:", error);
+            }
+        }
+
         async function fetchSensorData() {
             try {
-                const response = await fetch(`${API_BASE}/sensor-data`);
+                const response = await fetch(`${API_BASE}/sensor-data`, {
+                    headers: { 'Cache-Control': 'no-cache' }
+                });
+                
+                // Aggressive session redirect handler
+                if (response.status === 401 || response.redirected || response.url.includes('/login')) {
+                    console.log('Session invalid. Redirecting to login...');
+                    window.location.replace('/login');
+                    return;
+                }
+                
+                if (!response.ok) return;
+
                 const data = await response.json();
 
-                updateDataTable(data.data);
+                if(data.data && data.data.length > 0) {
+                    updateDataTable(data.data);
+                    updateChart(data.data);
+                    
+                    const latestData = data.data[data.data.length-1];
+                    document.getElementById('rulDisplay').textContent = `Est. Remaining Life: ${latestData.rul} Hours`;
+                    
+                    if (data.total_readings) {
+                        document.getElementById('readingCount').textContent = data.total_readings;
+                    }
+                }
                 if (data.latest) {
                     updateSensorCards(data.latest);
                 }
@@ -527,6 +747,65 @@
 
         // Set up auto-refresh
         setInterval(fetchSensorData, REFRESH_INTERVAL);
+
+        // -------------------------
+        // PWA Service Worker Logic
+        // -------------------------
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                .then(reg => {
+                    console.log('SW registered successfully:', reg.scope);
+                }).catch(err => {
+                    console.error('SW registration failed:', err);
+                });
+            });
+        }
+
+        // PWA Install Prompt Logic
+        let deferredPrompt;
+        const installBanner = document.getElementById('installBanner');
+        const installBtn = document.getElementById('installBtn');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // Prevent Chrome 67+ from automatically showing the prompt
+            e.preventDefault();
+            // Stash the event so it can be triggered later.
+            deferredPrompt = e;
+            // Reveal the install banner to the user
+            installBanner.style.display = 'flex';
+        });
+
+        installBtn.addEventListener('click', async () => {
+            // Hide the banner
+            installBanner.style.display = 'none';
+            if (deferredPrompt) {
+                // Show the install prompt
+                deferredPrompt.prompt();
+                // Wait for the user to respond to the prompt
+                const { outcome } = await deferredPrompt.userChoice;
+                console.log(`User response to the install prompt: ${outcome}`);
+                // We've used the prompt, and can't use it again, discard it
+                deferredPrompt = null;
+            }
+        });
+
+        // Hide install banner if successfully installed
+        window.addEventListener('appinstalled', (evt) => {
+            console.log('App successfully installed!');
+            installBanner.style.display = 'none';
+        });
+
+        // Detect iOS standalone mode (if user opened the app from home screen)
+        if (window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches) {
+            installBanner.style.display = 'none';
+        } else if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
+            // Special fallback for iOS since it doesn't trigger "beforeinstallprompt"
+            // Let's show a small visual hint.
+            installBanner.innerHTML = "To install on iOS: Tap Share button ⬆️ at the bottom, then 'Add to Home Screen'";
+            installBanner.style.display = 'flex';
+            setTimeout(() => { installBanner.style.display = 'none'; }, 8000); // Hide after 8s
+        }
     </script>
 </body>
 </html>
