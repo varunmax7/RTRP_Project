@@ -21,6 +21,7 @@ DHT dht2(DHTPIN2, DHTTYPE);
 #define VIB_PIN 7
 volatile int vibCount = 0;
 int lastState = LOW;
+int debouncedState = LOW;  // Confirmed stable state after debounce
 unsigned long startTime = 0;
 unsigned long lastDebounceTime = 0;
 unsigned long debounceDelay = 50;  // 50ms debounce for noisy signals
@@ -67,7 +68,7 @@ struct HealthMetrics {
 // ==================== FUNCTION DECLARATIONS ====================
 HealthMetrics calculateHealth(float nozzleTemp, float bedTemp, float motorCurrent, float vibPerMin);
 int mapToHealth(float value, float healthy_max, float degrade_min, float degrade_max, float fail_min);
-void displayAdvancedHealth(HealthMetrics metrics, float nozzleTemp, float bedTemp);
+void displayAdvancedHealth(HealthMetrics metrics, float nozzleTemp, float bedTemp, float motorCurrent, int vibCount);
 
 void setup() {
   Serial.begin(9600);
@@ -102,18 +103,25 @@ void loop() {
   // Count vibrations with debouncing
   int currentState = digitalRead(VIB_PIN);
   
-  // Debouncing logic
+  // Debouncing logic: track when raw reading last changed
   if (currentState != lastState) {
     lastDebounceTime = millis();
   }
   
-  // After debounce delay, if state is still different, record it
+  // After debounce delay, the reading is stable - check for real transitions
   if ((millis() - lastDebounceTime) > debounceDelay) {
-    if (currentState == HIGH && lastState == LOW) {
-      vibCount++;
+    // If the stable reading differs from confirmed state, it's a real change
+    if (currentState != debouncedState) {
+      debouncedState = currentState;
+      // Count only LOW -> HIGH transitions
+      if (debouncedState == HIGH) {
+        vibCount++;
+      }
     }
-    lastState = currentState;
   }
+  
+  // Always update lastState to track raw readings
+  lastState = currentState;
 
   // Reset vibration count every minute
   if (millis() - startTime >= 60000) {
@@ -140,7 +148,7 @@ void loop() {
   HealthMetrics metrics = calculateHealth(nozzleTemp, bedTemp, motorCurrent, vibCount);
 
   // Display results
-  displayAdvancedHealth(metrics, nozzleTemp, bedTemp);
+  displayAdvancedHealth(metrics, nozzleTemp, bedTemp, motorCurrent, vibCount);
 
   // Detailed Serial debug output for live sensor data
   Serial.print(">>> LIVE DATA | ");
@@ -246,7 +254,7 @@ HealthMetrics calculateHealth(float nozzleTemp, float bedTemp, float motorCurren
 }
 
 // ==================== DISPLAY ADVANCED HEALTH ON OLED ====================
-void displayAdvancedHealth(HealthMetrics metrics, float nozzleTemp, float bedTemp) {
+void displayAdvancedHealth(HealthMetrics metrics, float nozzleTemp, float bedTemp, float motorCurrent, int vibCount) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
@@ -267,20 +275,20 @@ void displayAdvancedHealth(HealthMetrics metrics, float nozzleTemp, float bedTem
   display.print((int)bedTemp);
   display.println("C");
   
-  // Line 3: RUL & Sub-health
+  // Line 3: Current & Vibration (Live Values)
   display.setCursor(0, 24);
+  display.print("CUR:");
+  display.print(motorCurrent, 1);
+  display.print("A  VIB:");
+  display.print(vibCount);
+  display.println("");
+
+  // Line 4: RUL & Sub-health
+  display.setCursor(0, 36);
   display.print("RUL:");
   display.print(metrics.rul_hours);
   display.print("h N:");
   display.print(metrics.nozzleHealth);
-  display.println("%");
-
-  // Line 4: More Sub-health
-  display.setCursor(0, 36);
-  display.print("M:");
-  display.print(metrics.motorHealth);
-  display.print("% B:");
-  display.print(metrics.bedHealth);
   display.println("%");
   
   // Line 5: ACTION recommendation - Clear and at bottom

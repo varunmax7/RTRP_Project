@@ -146,6 +146,11 @@ USE_MOCK_DATA = True
 system_active = True  # Toggle this to pause/resume data collection
 system_lock = threading.Lock()  # Thread-safe access to system_active
 
+# Continuous serial reader state
+_latest_serial_data = None
+_serial_data_lock = threading.Lock()
+_serial_line_buffer = ""
+
 
 def find_arduino_port():
     """Find an available Arduino-like serial port on macOS/Linux."""
@@ -240,7 +245,7 @@ def connect_serial():
             timeout=1,
             write_timeout=2
         )
-        time.sleep(2)  # Wait for Arduino to initialize
+        time.sleep(0.5)  # Brief wait for Arduino to initialize
         
         # Flush any buffered data
         ser.reset_input_buffer()
@@ -289,45 +294,60 @@ def generate_mock_sensor_data():
         'vib_per_min': round(vib_per_min, 2)
     }
 
-def read_serial_sensor_data():
-    """Read sensor data from Arduino serial port"""
-    global ser, USE_MOCK_DATA
-    try:
-        if not ser or not ser.is_open:
-            return None
-
-        # Drain buffered lines and keep the most recent valid sensor frame.
-        latest_data = None
-        max_lines = 120
-        lines_read = 0
-        while ser.in_waiting and lines_read < max_lines:
-            lines_read += 1
-            try:
-                line = ser.readline().decode("utf-8", errors="ignore").strip()
-            except Exception:
-                continue
-            parsed = parse_sensor_line(line)
-            if parsed is not None:
-                latest_data = parsed
-
-        return latest_data
-    except serial.SerialException as e:
-        print(f"Serial connection error: {e}")
-        # Try to reconnect on next attempt
-        if ser and ser.is_open:
-            try:
-                ser.close()
-            except:
-                pass
-        ser = None
-        if ALLOW_MOCK_FALLBACK:
-            USE_MOCK_DATA = True
-        else:
-            USE_MOCK_DATA = False
-    except Exception as e:
-        print(f"Unexpected error reading serial: {e}")
+def serial_reader_loop():
+    """Continuously read serial data line-by-line and store the latest parsed reading.
     
-    return None
+    This runs in its own thread so the OS serial buffer never overflows.
+    It properly handles partial lines by accumulating bytes into a line buffer.
+    """
+    global _latest_serial_data, _serial_line_buffer, ser, USE_MOCK_DATA
+    _serial_line_buffer = ""
+    
+    while True:
+        try:
+            if not ser or not ser.is_open:
+                time.sleep(0.5)
+                continue
+            
+            if ser.in_waiting > 0:
+                chunk = ser.read(ser.in_waiting).decode("utf-8", errors="ignore")
+                _serial_line_buffer += chunk
+                
+                # Process all complete lines in the buffer
+                while '\n' in _serial_line_buffer:
+                    line, _serial_line_buffer = _serial_line_buffer.split('\n', 1)
+                    line = line.strip()
+                    if line:
+                        parsed = parse_sensor_line(line)
+                        if parsed is not None:
+                            with _serial_data_lock:
+                                _latest_serial_data = parsed
+            else:
+                time.sleep(0.05)  # Small sleep to avoid busy-waiting
+                
+        except serial.SerialException as e:
+            print(f"Serial reader error: {e}")
+            if ser and ser.is_open:
+                try:
+                    ser.close()
+                except:
+                    pass
+            ser = None
+            time.sleep(1)
+        except Exception as e:
+            time.sleep(0.1)
+
+# Start the continuous serial reader thread
+_serial_reader_thread = threading.Thread(target=serial_reader_loop, daemon=True)
+_serial_reader_thread.start()
+
+def read_serial_sensor_data():
+    """Return the latest reading captured by the continuous serial reader thread."""
+    global _latest_serial_data
+    with _serial_data_lock:
+        data = _latest_serial_data
+        _latest_serial_data = None  # Consume it so we don't return stale data
+        return data
 
 def classify_status(nozzle_temp, bed_temp, current, vib_per_min):
     """Classify sensor status using ML model or rule-based thresholds"""
